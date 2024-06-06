@@ -1,0 +1,7 @@
+node_modules
+
+lib
+dist
+try.txt
+.mocharc.json
+scratch
