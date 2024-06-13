@@ -1,29 +1,47 @@
+import { isEqual } from "lodash";
 import algosdk from "algosdk";
-import pkg from "lodash";
-const { isEqual } = pkg;
-
-import {
-  saveStateToLocalStorage,
-  loadStateFromLocalStorage,
-  isSavedInLocalStorage,
-} from "./utils/storage.js";
-import { Arc76AccountState, LocalAccount } from "../src/types/index.js";
+import { Arc76AccountState } from "./provider.js";
+import { LocalAccount } from "./types/index.js";
 import { deriveKey } from "./utils/cryptoUtils.js";
+import {
+  isSavedInLocalStorage,
+  loadStateFromLocalStorage,
+  saveStateToLocalStorage,
+} from "./utils/storage.js";
+// import { Arc76AccountState, LocalAccount } from "../types/index.js";
+// import { deriveKey } from "../utils/cryptoUtils.js";
 
-export const initialState: Arc76AccountState = {
-  app: "shindg",
-  isOpen: false,
-  time: 2000000000000,
-  pass: "",
-  accounts: [],
-  transaction: {},
-  isSaved: false,
+// Initial state function
+export const initialState = (): Arc76AccountState | null => {
+  if (isSavedInLocalStorage()) {
+    //prompt user
+    return {
+      app: "shindg",
+      isOpen: false,
+      time: 2000000000000,
+      accounts: [],
+      transaction: {},
+      isSaved: true,
+    }; // Indicate that a saved state exists but not loaded yet
+
+    //check if there's a password will you
+  }
+  return {
+    app: "shindg",
+    isOpen: false,
+    time: 2000000000000,
+    accounts: [],
+    transaction: {},
+    isSaved: false,
+  };
 };
 
 export const reducer = (
-  state: Arc76AccountState,
+  state: Arc76AccountState | null,
   action: any
-): Arc76AccountState => {
+): Arc76AccountState | null => {
+  if (!state) return null;
+
   const newState = (() => {
     switch (action.type) {
       case "SET_TRANSACTION":
@@ -36,46 +54,38 @@ export const reducer = (
           time: Date.now(),
           isSaved: action.payload.savePassword,
         };
-      case "UNLOCK_WALLET":
-        return { ...state, ...action.payload, isOpen: true, pass: action.pass };
       case "LOCK_WALLET":
         return { ...state, isOpen: false };
       case "CHECK_FOR_SAVED_WALLET":
         return { ...state, isSaved: action.payload };
+      case "UNLOCK_WALLET":
+        return { ...action.state, isOpen: true };
       default:
         return state;
     }
   })();
 
-  // Only save state to local storage if it has changed
   if (!isEqual(newState, state)) {
-    saveStateToLocalStorage(newState, state.pass);
+    saveStateToLocalStorage(newState, action.password);
   }
   return newState;
 };
 
+// Actions
 export const actions = (dispatch: React.Dispatch<any>) => ({
   setTransaction: (transaction: any) => {
     localStorage.setItem("transaction", JSON.stringify(transaction));
     dispatch({ type: "SET_TRANSACTION", payload: transaction });
   },
-  addAccount: (account: LocalAccount) => {
+  addAccount: (account: LocalAccount, password: string) => {
     dispatch({
       type: "ADD_EMAIL_PASSWORD_ACCOUNT",
       payload: account,
-
       isOpen: true,
       time: Date.now(),
       isSaved: account.savePassword,
+      password: password,
     });
-  },
-  unlockWallet: (pass: string) => {
-    const state = loadStateFromLocalStorage(pass);
-    if (state) {
-      dispatch({ type: "UNLOCK_WALLET", pass, isSaved: true });
-    } else {
-      console.error("Failed to unlock wallet");
-    }
   },
   lockWallet: () => {
     dispatch({ type: "LOCK_WALLET" });
@@ -88,13 +98,29 @@ export const actions = (dispatch: React.Dispatch<any>) => ({
       isSaved: true,
     });
   },
+  unlockWallet: (pass: string) => {
+    const state = loadStateFromLocalStorage(pass);
+    if (state) {
+      state.accounts.forEach((account) => {
+        if (account && Array.isArray(account.sk)) {
+          account.sk = Uint8Array.from(account.sk);
+        }
+      });
+      dispatch({ type: "UNLOCK_WALLET", state, isSaved: true });
+    } else {
+      console.error("Failed to unlock wallet");
+    }
+  },
   getAccount: (addr: string) => (state: Arc76AccountState) => {
     return state.accounts.find((a) => a.addr === addr);
   },
   getSK: (addr: string) => (state: Arc76AccountState) => {
-    const address = state.accounts.find((a) => a.addr === addr);
-    if (address && address.sk) {
-      return Uint8Array.from(Object.values(address.sk));
+    const account = state.accounts.find((a) => a.addr === addr);
+    if (account && account.sk) {
+      if (Array.isArray(account.sk)) {
+        return Uint8Array.from(account.sk);
+      }
+      return account.sk;
     }
     return null;
   },
@@ -133,15 +159,19 @@ export const actions = (dispatch: React.Dispatch<any>) => ({
       const account: LocalAccount = {
         addr: genAccount.addr,
         address: genAccount.addr,
-        sk: savePassword ? genAccount.sk : null,
+        sk: genAccount.sk,
         savePassword,
         name,
         email,
-        network: network ? network : "testnet",
+        network: "testnet",
         type: "emailPwd",
       };
 
-      dispatch({ type: "ADD_EMAIL_PASSWORD_ACCOUNT", payload: account });
+      dispatch({
+        type: "ADD_EMAIL_PASSWORD_ACCOUNT",
+        payload: account,
+        password: password,
+      });
     } catch (error) {
       console.error("Error generating account:", error);
     }

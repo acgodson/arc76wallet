@@ -6,9 +6,8 @@ export const loadStateFromLocalStorage = (
 ): Arc76AccountState | null => {
   try {
     const encryptedState = localStorage.getItem("arc76walletState");
-    if (encryptedState === null) {
-      return null;
-    }
+    if (!encryptedState) return null;
+
     const bytes = CryptoJS.AES.decrypt(encryptedState, pass);
     const decryptedState = JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
     return decryptedState;
@@ -20,13 +19,13 @@ export const loadStateFromLocalStorage = (
 
 export const saveStateToLocalStorage = (
   state: Arc76AccountState,
-  pass: string
+  passw: string
 ) => {
   try {
     const serializedState = JSON.stringify(state);
     const encryptedState = CryptoJS.AES.encrypt(
       serializedState,
-      pass
+      passw
     ).toString();
     localStorage.setItem("arc76walletState", encryptedState);
   } catch (err) {
@@ -35,5 +34,8 @@ export const saveStateToLocalStorage = (
 };
 
 export const isSavedInLocalStorage = (): boolean => {
-  return localStorage.getItem("arc76walletState") !== null;
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("arc76walletState") !== null;
+  }
+  return false;
 };
